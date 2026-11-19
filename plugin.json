@@ -1,0 +1,12 @@
+{
+  "name": "prompt-predictor",
+  "displayName": "Prompt Predictor",
+  "version": "0.1.0",
+  "description": "Predicts likely next prompts after each agent turn in an auxiliary pane, with gray ghost-text Tab accept and one-click send.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Open Prompt Predictor and configure my model API key",
+    "Predict the next follow-up prompts for this conversation",
+    "Update Prompt Predictor settings or switch prediction model"
+  ]
+}
