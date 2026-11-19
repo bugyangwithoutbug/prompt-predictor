@@ -18,6 +18,7 @@ test('config defaults, atomic save with 0600 permissions, key preservation and c
   try {
     const initial = loadConfig(cfgPath);
     assert.deepEqual(initial, DEFAULT_CONFIG);
+    assert.equal(initial.autoPredict, false);
     assert.equal(toPublicConfig(initial, cfgPath).configured, false);
 
     // Save API key
@@ -48,7 +49,22 @@ test('config defaults, atomic save with 0600 permissions, key preservation and c
     assert.equal(saved3.apiKey, '');
     assert.equal(toPublicConfig(saved3, cfgPath).configured, false);
 
-    // Localhost endpoint does not require an API key
+    // Switching baseUrl origin or provider clears old apiKey and rejects keepExistingKey
+    saveConfig({ apiKey: 'sk-old-endpoint-1234' }, cfgPath);
+    assert.throws(
+      () => saveConfig({ baseUrl: 'https://other-gateway.example.com/v1', keepExistingKey: true }, cfgPath),
+      /re-enter your API key/,
+    );
+    const switched = saveConfig({ baseUrl: 'https://other-gateway.example.com/v1' }, cfgPath);
+    assert.equal(switched.apiKey, '');
+
+    // Non-local http:// Base URL is rejected
+    assert.throws(
+      () => saveConfig({ baseUrl: 'http://remote.example.com/v1' }, cfgPath),
+      /https:\/\//,
+    );
+
+    // Localhost endpoint does not require an API key and allows http://
     const localSaved = saveConfig({
       provider: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:11434/v1',

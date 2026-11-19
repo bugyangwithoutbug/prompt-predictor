@@ -173,18 +173,52 @@
     el.textContent = message;
   }
 
+  function endpointOrigin(rawUrl) {
+    try {
+      return new URL(String(rawUrl || '')).origin.toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  function isLocalhostEndpoint(rawUrl) {
+    try {
+      const h = new URL(String(rawUrl || '')).hostname;
+      return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    } catch {
+      return false;
+    }
+  }
+
+  function updateKeyPlaceholder() {
+    const cfg = state.config;
+    const provider = $('cfg-provider').value;
+    const baseUrl = $('cfg-baseurl').value.trim();
+    const isLocal = provider === 'openai-compatible' && isLocalhostEndpoint(baseUrl);
+    if (isLocal) {
+      $('cfg-apikey').placeholder = '本地服务可留空';
+      return;
+    }
+    const sameEndpoint = Boolean(
+      cfg?.hasApiKey &&
+      cfg.provider === provider &&
+      endpointOrigin(cfg.baseUrl) === endpointOrigin(baseUrl),
+    );
+    $('cfg-apikey').placeholder = sameEndpoint
+      ? `已保存 (${cfg.apiKeyPreview})，留空保持不变`
+      : (cfg?.hasApiKey ? '端点已变更，请重新输入 API Key' : '输入 API Key');
+  }
+
   function populateSettingsForm(cfg) {
     state.config = cfg;
     $('cfg-provider').value = cfg.provider || 'openai-compatible';
     $('cfg-baseurl').value = cfg.baseUrl || '';
     $('cfg-model').value = cfg.model || '';
     $('cfg-apikey').value = '';
-    $('cfg-apikey').placeholder = cfg.hasApiKey
-      ? `已保存 (${cfg.apiKeyPreview})，留空保持不变`
-      : (cfg.requiresApiKey ? '输入 API Key' : '本地服务可留空');
     $('cfg-instructions').value = cfg.customInstructions || '';
-    $('cfg-autopredict').checked = cfg.autoPredict !== false;
+    $('cfg-autopredict').checked = Boolean(cfg.autoPredict);
     $('cfg-path').textContent = cfg.configPath ? `配置保存在: ${cfg.configPath}` : '';
+    updateKeyPlaceholder();
 
     if (!cfg.configured && !state.drawerAutoOpened) {
       state.drawerAutoOpened = true;
@@ -355,10 +389,13 @@
         emptyDesc.textContent = '正在分析最新对话上下文。';
       } else if (state.poll?.status === 'working') {
         emptyTitle.textContent = 'AI 正在思考或执行工具';
-        emptyDesc.textContent = '本轮回复完成后将自动预测下一步提示词。';
+        emptyDesc.textContent = '本轮回复完成后将处理下一步预测。';
+      } else if (state.poll?.turnEnded && state.config?.configured && !state.config?.autoPredict) {
+        emptyTitle.textContent = '自动预测已关闭';
+        emptyDesc.textContent = '点击右上角 ↻ 手动生成预测，或在设置中开启自动预测（会发送最近对话至 Base URL）。';
       } else {
         emptyTitle.textContent = '等待对话轮次结束';
-        emptyDesc.textContent = '对话完成一轮回复后，这里会显示 1~3 条预测提示词。';
+        emptyDesc.textContent = '对话完成一轮回复后，可自动或手动生成 1~3 条预测提示词。';
       }
       syncComposerGhostAndHeight();
       return;
@@ -492,9 +529,11 @@
   async function pollOnce() {
     if (document.hidden) return;
     const convId = currentConvId();
-    const qs = convId ? `?conversationId=${encodeURIComponent(convId)}` : '';
     try {
-      const data = await apiJson(`/api/state${qs}`, { method: 'GET' });
+      const data = await apiJson('/api/state', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: convId }),
+      });
       state.poll = data;
 
       if (data.prediction && Array.isArray(data.prediction.suggestions)) {
@@ -564,6 +603,7 @@
       $('cfg-baseurl').value = preset.baseUrl;
       $('cfg-model').value = preset.model;
       $('cfg-model').placeholder = preset.modelPlaceholder || '模型名';
+      updateKeyPlaceholder();
       showSettingsFeedback('');
       if (!preset.model) {
         $('cfg-model').focus();
@@ -705,9 +745,12 @@
     }
   });
 
+  $('cfg-provider').addEventListener('change', updateKeyPlaceholder);
+  $('cfg-baseurl').addEventListener('input', updateKeyPlaceholder);
+
   async function init() {
     try {
-      const cfg = await apiJson('/api/config', { method: 'GET' });
+      const cfg = await apiJson('/api/config/get', { method: 'POST', body: '{}' });
       populateSettingsForm(cfg);
     } catch (err) {
       showErrorBanner(`读取配置失败: ${err.message}`);

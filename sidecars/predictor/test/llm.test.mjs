@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { generatePredictions, parseSuggestions, testConnection } from '../lib/llm.mjs';
+import { buildPredictionMessages, generatePredictions, parseSuggestions, redactSecrets, testConnection } from '../lib/llm.mjs';
 
 function startMockServer(handler) {
   return new Promise((resolve) => {
@@ -453,4 +453,43 @@ test('retries transient fetch failed errors and surfaces underlying cause on per
     ),
     /fetch failed \| ECONNRESET: Connection reset by peer/,
   );
+});
+
+test('redacts secrets in outbound prediction messages and upstream error logs', async () => {
+  const { user } = buildPredictionMessages([
+    {
+      role: 'user',
+      text: 'Test with key sk-proj-realSecretValue12345 and ghp_abcdefghijklmnopqrstuv and Bearer myJwtSecretToken12345 and api_key=superSecretPass99',
+    },
+  ]);
+  assert.equal(user.includes('sk-proj-realSecretValue12345'), false);
+  assert.equal(user.includes('ghp_abcdefghijklmnopqrstuv'), false);
+  assert.equal(user.includes('myJwtSecretToken12345'), false);
+  assert.equal(user.includes('superSecretPass99'), false);
+  assert.match(user, /\[REDACTED_KEY\]/);
+  assert.match(user, /\[REDACTED_TOKEN\]/);
+  assert.match(user, /Bearer \[REDACTED\]/);
+
+  const echoErrFetch = async () => new Response(
+    JSON.stringify({
+      error: {
+        code: 'bad_gateway',
+        message: 'Upstream echoed sk-echoedSecret1234567890 in error',
+      },
+    }),
+    { status: 502, headers: { 'Content-Type': 'application/json' } },
+  );
+
+  await assert.rejects(
+    () => testConnection(
+      { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-1', model: 'gpt-4o-mini' },
+      { fetchImpl: echoErrFetch },
+    ),
+    (err) => {
+      assert.equal(err.message.includes('sk-echoedSecret1234567890'), false);
+      assert.match(err.message, /HTTP 502: bad_gateway: Upstream echoed \[REDACTED_KEY\]/);
+      return true;
+    },
+  );
+  assert.equal(redactSecrets('plain text'), 'plain text');
 });

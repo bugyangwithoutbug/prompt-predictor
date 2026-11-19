@@ -9,7 +9,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o-mini',
-  autoPredict: true,
+  autoPredict: false,
   suggestionCount: 3,
   customInstructions: '',
 });
@@ -33,13 +33,21 @@ export function maskApiKey(key) {
   return `${key.slice(0, 3)}…${key.slice(-4)}`;
 }
 
-/** Return true if the URL targets localhost/loopback where API keys are optional. */
+/** Return true if the URL targets localhost/loopback where API keys and HTTP are allowed. */
 export function isLocalhostUrl(rawUrl) {
   try {
     const u = new URL(String(rawUrl || ''));
-    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
   } catch {
     return false;
+  }
+}
+
+export function getEndpointOrigin(rawUrl) {
+  try {
+    return new URL(String(rawUrl || '')).origin.toLowerCase();
+  } catch {
+    return '';
   }
 }
 
@@ -66,6 +74,9 @@ function validateBaseUrl(urlStr) {
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Base URL protocol must be http: or https:.');
+  }
+  if (parsed.protocol === 'http:' && !isLocalhostUrl(urlStr)) {
+    throw new Error('Non-local Base URL must use https://.');
   }
 }
 
@@ -104,16 +115,22 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
     model = provider === 'gemini' ? 'gemini-2.5-flash' : DEFAULT_CONFIG.model;
   }
 
+  const prevEndpoint = `${prev.provider || DEFAULT_CONFIG.provider}:${getEndpointOrigin(prev.baseUrl || DEFAULT_CONFIG.baseUrl)}`;
+  const nextEndpoint = `${provider}:${getEndpointOrigin(baseUrl)}`;
+  const endpointChanged = Boolean(prev.apiKey) && prevEndpoint !== nextEndpoint;
+
   let apiKey = typeof prev.apiKey === 'string' ? prev.apiKey : '';
   if (p.clearApiKey === true) {
     apiKey = '';
-  } else if (typeof p.apiKey === 'string') {
-    const trimmedKey = p.apiKey.trim();
-    if (trimmedKey) {
-      apiKey = trimmedKey;
-    } else if (p.keepExistingKey === false) {
-      apiKey = '';
+  } else if (typeof p.apiKey === 'string' && p.apiKey.trim()) {
+    apiKey = p.apiKey.trim();
+  } else if (endpointChanged) {
+    if (strict && p.keepExistingKey === true && !isLocalhostUrl(baseUrl)) {
+      throw new Error('Provider or Base URL changed — please re-enter your API key.');
     }
+    apiKey = '';
+  } else if (typeof p.apiKey === 'string' && !p.apiKey.trim() && p.keepExistingKey === false) {
+    apiKey = '';
   }
 
   const autoPredict = p.autoPredict !== undefined

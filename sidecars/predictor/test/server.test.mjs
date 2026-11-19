@@ -30,7 +30,7 @@ async function waitForServer(baseUrl, child) {
       throw new Error(`sidecar exited early with code ${child.exitCode}`);
     }
     try {
-      const res = await fetch(`${baseUrl}/api/config`);
+      const res = await fetch(`${baseUrl}/`);
       if (res.ok) return;
     } catch {
       // retry until ready
@@ -150,13 +150,38 @@ test('predictor sidecar HTTP routes, token auth, state polling, and prediction c
   assert.equal(savedPub.hasApiKey, true);
   assert.equal(savedPub.apiKeyPreview, 'sk-…9999');
 
-  // GET /api/config never returns raw apiKey
-  const getCfg = await (await fetch(`${sidecarUrl}/api/config`)).json();
+  // Unauthenticated GET /api/config and GET /api/state are disabled (405 Method Not Allowed)
+  assert.equal((await fetch(`${sidecarUrl}/api/config`)).status, 405);
+  assert.equal((await fetch(`${sidecarUrl}/api/state`)).status, 405);
+
+  // POST /api/config/get and POST /api/state require X-Sidecar-Token
+  assert.equal((await fetch(`${sidecarUrl}/api/config/get`, { method: 'POST', body: '{}' })).status, 401);
+  assert.equal((await fetch(`${sidecarUrl}/api/state`, { method: 'POST', body: JSON.stringify({ conversationId: convId }) })).status, 401);
+
+  const getCfgRes = await fetch(`${sidecarUrl}/api/config/get`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': uiToken,
+    },
+    body: '{}',
+  });
+  assert.equal(getCfgRes.status, 200);
+  const getCfg = await getCfgRes.json();
   assert.equal('apiKey' in getCfg, false);
   assert.equal(getCfg.configured, true);
 
-  // GET /api/state detects turnEnded
-  const st = await (await fetch(`${sidecarUrl}/api/state?conversationId=${convId}`)).json();
+  // POST /api/state detects turnEnded with valid token
+  const stRes = await fetch(`${sidecarUrl}/api/state`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': uiToken,
+    },
+    body: JSON.stringify({ conversationId: convId }),
+  });
+  assert.equal(stRes.status, 200);
+  const st = await stRes.json();
   assert.equal(st.turnEnded, true);
   assert.equal(st.turnKey, '1');
   assert.equal(st.cached, false);
@@ -173,6 +198,19 @@ test('predictor sidecar HTTP routes, token auth, state polling, and prediction c
   assert.equal(testConnRes.status, 200);
   const testConnJson = await testConnRes.json();
   assert.equal(testConnJson.ok, true);
+
+  // Switching baseUrl with keepExistingKey must NOT send old key to new endpoint
+  const switchTestRes = await fetch(`${sidecarUrl}/api/test-connection`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': uiToken,
+    },
+    body: JSON.stringify({ baseUrl: 'https://other-gateway.example.com/v1', keepExistingKey: true }),
+  });
+  const switchTestJson = await switchTestRes.json();
+  assert.equal(switchTestJson.ok, false);
+  assert.match(switchTestJson.error, /re-enter your API key/);
 
   // POST /api/predict twice -> hits LLM once, second call served from cache
   const pred1Res = await fetch(`${sidecarUrl}/api/predict`, {

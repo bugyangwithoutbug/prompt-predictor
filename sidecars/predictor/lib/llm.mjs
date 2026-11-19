@@ -28,11 +28,25 @@ function buildGeminiGenerateUrl(baseUrl, model) {
   return `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 }
 
+/** Redact common API keys, bearer tokens, and credential assignments before outbound/log use. */
+export function redactSecrets(text) {
+  return String(text || '')
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._-]{12,}/gi, '$1[REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, '[REDACTED_KEY]')
+    .replace(/\bgh[pousr]_[A-Za-z0-9_]{16,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[REDACTED_KEY]')
+    .replace(/\bxox[baprs]-[0-9A-Za-z-]{10,}\b/g, '[REDACTED_TOKEN]')
+    .replace(
+      /\b(api[_-]?key|secret|token|password)\b(\s*[:=]\s*)(['"]?)([^\s'",;]{8,})\3/gi,
+      '$1$2$3[REDACTED]$3',
+    );
+}
+
 /** Build system & user messages for next-prompt prediction. */
 export function buildPredictionMessages(dialogue, options = {}) {
   const count = clampCount(options.count ?? 3);
   const customInstructions = typeof options.customInstructions === 'string'
-    ? options.customInstructions.trim().slice(0, 500)
+    ? redactSecrets(options.customInstructions.trim().slice(0, 500))
     : '';
   const workspaceNames = Array.isArray(options.workspaceNames)
     ? options.workspaceNames.map((w) => String(w || '').trim()).filter(Boolean)
@@ -62,7 +76,7 @@ export function buildPredictionMessages(dialogue, options = {}) {
   }
   for (const msg of dialogue || []) {
     const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
-    transcriptLines.push(`${roleLabel}: ${msg.text}`);
+    transcriptLines.push(`${roleLabel}: ${redactSecrets(msg.text)}`);
   }
   transcriptLines.push('');
   transcriptLines.push(`Return exactly ${count} ranked next-user-prompt predictions as JSON.`);
@@ -300,7 +314,21 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
 
     let rawErr = '';
     try {
-      rawErr = (await res.text()).replace(/\s+/g, ' ').trim();
+      const text = await res.text();
+      try {
+        const parsedErr = JSON.parse(text);
+        const errObj = parsedErr?.error;
+        if (errObj && typeof errObj === 'object') {
+          const msg = errObj.message ? redactSecrets(String(errObj.message)) : '';
+          const code = errObj.code || errObj.type || '';
+          rawErr = [code, msg].filter(Boolean).join(': ').replace(/\s+/g, ' ').trim();
+        }
+      } catch {
+        // non-JSON upstream error body
+      }
+      if (!rawErr) {
+        rawErr = redactSecrets(text).replace(/\s+/g, ' ').trim();
+      }
     } catch {
       // ignore body read error
     }

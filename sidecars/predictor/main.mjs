@@ -76,8 +76,8 @@ for (const [route, [file, contentType]] of Object.entries(STATIC)) {
   app.api(route, () => new Response(readFileSync(join(__dirname, file), 'utf-8'), { contentType }), 'GET');
 }
 
-// GET bypasses X-Sidecar-Token in sidecar_sdk: never return raw apiKey here.
-app.api('/api/config', () => toPublicConfig(loadConfig()), 'GET');
+// All data & mutation endpoints use POST so sidecar_sdk enforces X-Sidecar-Token.
+app.api('/api/config/get', () => toPublicConfig(loadConfig()), 'POST');
 
 app.api('/api/config', (data) => {
   const prev = loadConfig();
@@ -148,7 +148,7 @@ app.api('/api/state', (data) => {
     cached: Boolean(hit),
     prediction: hit,
   };
-}, 'GET');
+}, 'POST');
 
 app.api('/api/predict', async (data) => {
   const convId = String(data.conversationId || app.config.conversationId || '').trim();
