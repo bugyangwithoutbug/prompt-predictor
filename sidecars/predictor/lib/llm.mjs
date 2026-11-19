@@ -287,6 +287,7 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
+        redirect: 'error',
         signal: AbortSignal.timeout(timeoutMs),
       });
 
@@ -304,6 +305,9 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
         throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s (${url}, model=${model}). Check network/proxy or try a faster model.`);
       }
+      if (/redirect/i.test(err?.message || '') || /redirect/i.test(err?.cause?.message || '')) {
+        throw new Error(`Request redirected from ${url} (redirects are blocked for security).`);
+      }
       if (isTransientNetworkError(err) && netRetries < 2) {
         netRetries += 1;
         await new Promise((r) => setTimeout(r, 250 * netRetries));
@@ -312,32 +316,31 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
       throw new Error(formatFetchError(err));
     }
 
-    let rawErr = '';
+    const requestId = res.headers?.get?.('x-request-id')
+      || res.headers?.get?.('request-id')
+      || res.headers?.get?.('cf-ray')
+      || '';
+
+    let errCode = '';
+    let errMsg = '';
     try {
       const text = await res.text();
-      try {
-        const parsedErr = JSON.parse(text);
-        const errObj = parsedErr?.error;
-        if (errObj && typeof errObj === 'object') {
-          const msg = errObj.message ? redactSecrets(String(errObj.message)) : '';
-          const code = errObj.code || errObj.type || '';
-          rawErr = [code, msg].filter(Boolean).join(': ').replace(/\s+/g, ' ').trim();
-        }
-      } catch {
-        // non-JSON upstream error body
-      }
-      if (!rawErr) {
-        rawErr = redactSecrets(text).replace(/\s+/g, ' ').trim();
+      const parsedErr = JSON.parse(text);
+      const errObj = parsedErr?.error;
+      if (errObj && typeof errObj === 'object') {
+        errCode = String(errObj.code || errObj.type || '').replace(/\s+/g, ' ').trim().slice(0, 64);
+        errMsg = errObj.message ? redactSecrets(String(errObj.message)).replace(/\s+/g, ' ').trim() : '';
       }
     } catch {
-      // ignore body read error
+      // Non-JSON or unreadable upstream error body: never echo raw text
     }
 
+    const fallbackText = `${errCode} ${errMsg}`;
     if (provider !== 'gemini' && res.status === 400 && attempt < 5) {
       if (
         payload.max_tokens !== undefined &&
-        rawErr.includes('max_completion_tokens') &&
-        rawErr.includes('max_tokens')
+        fallbackText.includes('max_completion_tokens') &&
+        fallbackText.includes('max_tokens')
       ) {
         payload.max_completion_tokens = Math.max(payload.max_tokens, isPing ? 256 : 2048);
         delete payload.max_tokens;
@@ -348,14 +351,14 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
       }
       if (
         payload.temperature !== undefined &&
-        rawErr.toLowerCase().includes('temperature')
+        fallbackText.toLowerCase().includes('temperature')
       ) {
         delete payload.temperature;
         continue;
       }
       if (
         payload.reasoning_effort !== undefined &&
-        rawErr.toLowerCase().includes('reasoning_effort')
+        fallbackText.toLowerCase().includes('reasoning_effort')
       ) {
         droppedReasoningEffort = true;
         delete payload.reasoning_effort;
@@ -363,8 +366,11 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
       }
     }
 
-    const errBody = rawErr.slice(0, 240);
-    throw new Error(`HTTP ${res.status}${errBody ? `: ${errBody}` : ''}`);
+    const structured = [errCode, errMsg].filter(Boolean).join(': ').slice(0, 240);
+    const reqSuffix = requestId ? ` (request_id=${requestId})` : '';
+    const outErr = new Error(`HTTP ${res.status}${structured ? `: ${structured}` : ''}${reqSuffix}`);
+    outErr.safeLog = `HTTP ${res.status}${errCode ? ` code=${errCode}` : ''}${reqSuffix}`;
+    throw outErr;
   }
 }
 

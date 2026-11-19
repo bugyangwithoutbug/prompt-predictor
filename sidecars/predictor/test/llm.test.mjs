@@ -493,3 +493,57 @@ test('redacts secrets in outbound prediction messages and upstream error logs', 
   );
   assert.equal(redactSecrets('plain text'), 'plain text');
 });
+
+test('blocks HTTP redirects and drops raw non-JSON upstream error bodies from logs', async () => {
+  const { server: targetServer, baseUrl: targetUrl } = await startMockServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'SHOULD_NOT_REACH' } }] }));
+  });
+  let targetHit = false;
+  targetServer.on('request', () => { targetHit = true; });
+
+  const { server: redirServer, baseUrl: redirUrl } = await startMockServer((req, body, res) => {
+    res.writeHead(307, { Location: `${targetUrl}/v1/chat/completions` });
+    res.end();
+  });
+
+  try {
+    await assert.rejects(
+      () => testConnection({
+        provider: 'openai-compatible',
+        baseUrl: `${redirUrl}/v1`,
+        apiKey: 'sk-should-not-follow',
+        model: 'gpt-4o-mini',
+      }),
+      /redirects are blocked/,
+    );
+    assert.equal(targetHit, false);
+  } finally {
+    redirServer.close();
+    targetServer.close();
+  }
+
+  const nonJsonErrFetch = async () => new Response(
+    '<html>Gateway raw echo: sensitive-internal-payload</html>',
+    {
+      status: 502,
+      headers: {
+        'Content-Type': 'text/html',
+        'x-request-id': 'req_abc123',
+      },
+    },
+  );
+
+  await assert.rejects(
+    () => testConnection(
+      { provider: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-1', model: 'gpt-4o-mini' },
+      { fetchImpl: nonJsonErrFetch },
+    ),
+    (err) => {
+      assert.equal(err.message, 'HTTP 502 (request_id=req_abc123)');
+      assert.equal(err.safeLog, 'HTTP 502 (request_id=req_abc123)');
+      assert.equal(err.message.includes('sensitive-internal-payload'), false);
+      return true;
+    },
+  );
+});

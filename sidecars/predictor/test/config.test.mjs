@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -82,4 +82,28 @@ test('maskApiKey handles empty, short, and standard keys', () => {
   assert.equal(maskApiKey(''), '');
   assert.equal(maskApiKey('short'), '****');
   assert.equal(maskApiKey('sk-1234567890abcd'), 'sk-…abcd');
+});
+
+test('legacy pre-consent autoPredict=true on disk is disabled until explicitly confirmed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pp-legacy-'));
+  const cfgPath = join(dir, 'settings.local.json');
+  try {
+    writeFileSync(cfgPath, JSON.stringify({
+      provider: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+      apiKey: 'sk-legacy-1234',
+      autoPredict: true,
+    }), 'utf-8');
+
+    const loaded = loadConfig(cfgPath);
+    assert.equal(loaded.autoPredict, false);
+
+    saveConfig({ autoPredict: true }, cfgPath);
+    const reloaded = loadConfig(cfgPath);
+    assert.equal(reloaded.autoPredict, true);
+    assert.equal(reloaded.autoPredictConfirmed, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

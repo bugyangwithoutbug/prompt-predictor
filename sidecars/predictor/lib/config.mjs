@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   apiKey: '',
   model: 'gpt-4o-mini',
   autoPredict: false,
+  autoPredictConfirmed: false,
   suggestionCount: 3,
   customInstructions: '',
 });
@@ -133,9 +134,21 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
     apiKey = '';
   }
 
-  const autoPredict = p.autoPredict !== undefined
-    ? Boolean(p.autoPredict)
-    : (typeof prev.autoPredict === 'boolean' ? prev.autoPredict : DEFAULT_CONFIG.autoPredict);
+  let autoPredictConfirmed = Boolean(prev.autoPredictConfirmed);
+  let autoPredict = typeof prev.autoPredict === 'boolean' ? prev.autoPredict : DEFAULT_CONFIG.autoPredict;
+  if (p.autoPredict !== undefined) {
+    autoPredict = Boolean(p.autoPredict);
+    if (strict) {
+      autoPredictConfirmed = autoPredict;
+    } else {
+      autoPredictConfirmed = Boolean(p.autoPredictConfirmed === true);
+      if (!autoPredictConfirmed) {
+        autoPredict = false;
+      }
+    }
+  } else if (!strict && !autoPredictConfirmed) {
+    autoPredict = false;
+  }
 
   const suggestionCount = clampInt(
     p.suggestionCount !== undefined ? p.suggestionCount : prev.suggestionCount,
@@ -154,6 +167,7 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
     apiKey,
     model,
     autoPredict,
+    autoPredictConfirmed,
     suggestionCount,
     customInstructions,
   };

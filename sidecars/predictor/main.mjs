@@ -120,7 +120,7 @@ app.api('/api/test-connection', async (data) => {
     console.log(`[predictor] test-connection ok model=${result.model} latencyMs=${result.latencyMs}`);
     return result;
   } catch (err) {
-    console.error(`[predictor] test-connection failed model=${effective.model}: ${err.message}`);
+    console.error(`[predictor] test-connection failed model=${effective.model}: ${err.safeLog || err.message}`);
     return { ok: false, error: err.message || 'Connection test failed.' };
   }
 }, 'POST');
@@ -204,7 +204,7 @@ app.api('/api/predict', async (data) => {
         return entry;
       })
       .catch((err) => {
-        console.error(`[predictor] predict failed model=${cfg.model}: ${err.message}`);
+        console.error(`[predictor] predict failed model=${cfg.model}: ${err.safeLog || err.message}`);
         throw err;
       })
       .finally(() => {
