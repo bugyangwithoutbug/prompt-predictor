@@ -1,5 +1,7 @@
 # Prompt Predictor
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Antigravity auxiliary-pane UI plugin that predicts likely next user prompts after each agent turn (inspired by Codex Composer Predictions), featuring gray ghost-text completion with `Tab` acceptance and one-click direct sending.
 
 ## Features
