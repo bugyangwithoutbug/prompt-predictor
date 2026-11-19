@@ -103,6 +103,22 @@ test('legacy pre-consent autoPredict=true on disk is disabled until explicitly c
     const reloaded = loadConfig(cfgPath);
     assert.equal(reloaded.autoPredict, true);
     assert.equal(reloaded.autoPredictConfirmed, true);
+
+    // Legacy remote http:// Base URL must clear apiKey and mark unconfigured
+    writeFileSync(cfgPath, JSON.stringify({
+      provider: 'openai-compatible',
+      baseUrl: 'http://legacy-gateway.example.com/v1',
+      model: 'gpt-4o-mini',
+      apiKey: 'sk-legacy-http-9999',
+      autoPredict: true,
+      autoPredictConfirmed: true,
+    }), 'utf-8');
+
+    const legacyHttp = loadConfig(cfgPath);
+    assert.equal(legacyHttp.baseUrl, 'https://api.openai.com/v1');
+    assert.equal(legacyHttp.apiKey, '');
+    assert.equal(legacyHttp.autoPredict, false);
+    assert.equal(toPublicConfig(legacyHttp, cfgPath).configured, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -392,7 +392,7 @@
         emptyDesc.textContent = '本轮回复完成后将处理下一步预测。';
       } else if (state.poll?.turnEnded && state.config?.configured && !state.config?.autoPredict) {
         emptyTitle.textContent = '自动预测已关闭';
-        emptyDesc.textContent = '点击右上角 ↻ 手动生成预测，或在设置中开启自动预测（会发送最近对话至 Base URL）。';
+        emptyDesc.textContent = '点击右上角 ↻ 手动生成预测，或在设置中开启自动预测（会将最近对话发送至 Base URL，仅过滤部分常见密钥格式）。';
       } else {
         emptyTitle.textContent = '等待对话轮次结束';
         emptyDesc.textContent = '对话完成一轮回复后，可自动或手动生成 1~3 条预测提示词。';
@@ -500,7 +500,7 @@
         body: JSON.stringify({
           conversationId: convId,
           force,
-          workspaceNames: state.workspaceNames,
+          workspaceNames: [],
         }),
       });
       if (!result.skipped && Array.isArray(result.suggestions)) {

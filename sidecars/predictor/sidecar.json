@@ -3,7 +3,7 @@
   "args": ["main.mjs"],
   "env": {
     "NODE_USE_ENV_PROXY": "1",
-    "PREDICTOR_REV": "8"
+    "PREDICTOR_REV": "9"
   },
   "restart_policy": "always",
   "display_name": "Prompt Predictor",

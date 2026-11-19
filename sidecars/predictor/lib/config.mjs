@@ -100,12 +100,14 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
     p.baseUrl !== undefined ? p.baseUrl : prev.baseUrl,
     provider,
   );
+  let invalidPersistedUrl = false;
   if (strict) {
     validateBaseUrl(baseUrl);
   } else {
     try {
       validateBaseUrl(baseUrl);
     } catch {
+      invalidPersistedUrl = true;
       baseUrl = normalizeBaseUrlString('', provider);
     }
   }
@@ -121,7 +123,7 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
   const endpointChanged = Boolean(prev.apiKey) && prevEndpoint !== nextEndpoint;
 
   let apiKey = typeof prev.apiKey === 'string' ? prev.apiKey : '';
-  if (p.clearApiKey === true) {
+  if (invalidPersistedUrl || p.clearApiKey === true) {
     apiKey = '';
   } else if (typeof p.apiKey === 'string' && p.apiKey.trim()) {
     apiKey = p.apiKey.trim();
@@ -136,7 +138,10 @@ export function mergeConfig(base, patch = {}, { strict = true } = {}) {
 
   let autoPredictConfirmed = Boolean(prev.autoPredictConfirmed);
   let autoPredict = typeof prev.autoPredict === 'boolean' ? prev.autoPredict : DEFAULT_CONFIG.autoPredict;
-  if (p.autoPredict !== undefined) {
+  if (invalidPersistedUrl) {
+    autoPredict = false;
+    autoPredictConfirmed = false;
+  } else if (p.autoPredict !== undefined) {
     autoPredict = Boolean(p.autoPredict);
     if (strict) {
       autoPredictConfirmed = autoPredict;

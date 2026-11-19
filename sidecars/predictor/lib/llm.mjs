@@ -368,8 +368,9 @@ async function callProvider(cfg, { system, user, maxTokens, isPing = false, resp
 
     const structured = [errCode, errMsg].filter(Boolean).join(': ').slice(0, 240);
     const reqSuffix = requestId ? ` (request_id=${requestId})` : '';
+    const safeCode = /^[a-z0-9_.-]{1,48}$/i.test(errCode) ? errCode : (errCode ? 'upstream_error' : '');
     const outErr = new Error(`HTTP ${res.status}${structured ? `: ${structured}` : ''}${reqSuffix}`);
-    outErr.safeLog = `HTTP ${res.status}${errCode ? ` code=${errCode}` : ''}${reqSuffix}`;
+    outErr.safeLog = `HTTP ${res.status}${safeCode ? ` code=${safeCode}` : ''}${reqSuffix}`;
     throw outErr;
   }
 }
